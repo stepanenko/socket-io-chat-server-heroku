@@ -1,95 +1,64 @@
 
+require('dotenv').config();
+
 const express = require('express');
 const socket = require('socket.io');
 const helmet  = require('helmet');
+const mongoose = require('mongoose');
+const ejsLayouts = require('express-ejs-layouts');
+
+const Message = require('./models/message');
 
 const app = express();
 
 app.use(helmet());
+
+app.use(express.static(__dirname + '/public'));
+
+app.set('view engine', 'ejs');
+app.use(ejsLayouts);
+
+mongoose.connect(process.env.DB_URI, { useNewUrlParser: true })
+  .then(() => console.log('Connected to mLab'))
+  .catch(err => console.error('Could not connect to mLab: ', err));
+
+async function addMessage() {
+  const message = new Message({
+    user: 'Jack',
+    message: 'Hello Tom!'
+  });
+  
+  const result = await message.save();
+  console.log(result);
+}
+
+async function listMessages() {
+  const array = await Message
+    .find()
+    .select('user message -_id'); // excluding _id from query
+    // .count(); // gives an amount of items in DB
+  console.log(array);
+}
+
+async function deleteMessage() {
+  const deleted = await Message.deleteMany();
+  console.log(deleted);
+}
+
+// deleteMessage();
+listMessages();
 
 const port = process.env.PORT || 5000;
 const server = app.listen(port, function() {
   console.log('Listening on port:', port)
 });
 
+
+// ========== SOCKET LOGIC ================
 const io = socket(server);
+require('./socket-io')(io);
 
-let messages = [];
-let onlineUsers = [];
-
-io.on('connection', function(socket) {
-  console.log('New user connected, id:', socket.id);
-
-  onlineUsers = onlineUsers.concat(socket.id);
-
-  socket.broadcast.emit('login', {
-    status: 'New user has logged in'
-  });
-
-  io.emit('online', onlineUsers.length);
-
-  io.to(socket.id).emit('chatClosed');
-
-  socket.on('disconnect', function() {
-    socket.broadcast.emit('logout', {
-      status: `User has logged out`
-    });
-
-    console.log('User disconnected, id:', socket.id);
-
-    onlineUsers = onlineUsers.filter(x => x !== socket.id);
-
-    io.emit('online', onlineUsers.length);
-  });
-
-
-  socket.on('leave', function(user) {
-    const status = {
-      status: `${user} has left this chat room`
-    };
-
-    socket.broadcast.emit('leave', status);
-
-    io.to(socket.id).emit('chatClosed');
-  });
-
-
-  socket.on('join', function() {
-    const status = {
-      status: `New user has joined this chat room`
-    };
-
-    socket.broadcast.emit('join', status);
-
-    io.to(socket.id).emit('chatOpened');
-  });
-
-
-  socket.on('message', function(data) {
-    io.emit('message', {
-      user: data.user,
-      message: data.message
-    });
-
-    messages = messages.concat(data);
-  });
-
-
-  socket.on('typing', function(user) {
-
-    socket.broadcast.emit('typing', {
-      message: `${user} is typing a message ...`
-    });
-  });
-
-
-  socket.on('history', function() {
-
-    io.to(socket.id).emit('history', messages)
-  });
-
-});
-
+// ========== ROUTES ================
 app.get('/', function(req, res) {
-  res.send('Welcome to live chat server v3.0')
+  res.render('pages/home');
 });
